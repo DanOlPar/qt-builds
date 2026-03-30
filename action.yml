@@ -1,0 +1,25 @@
+name: Install Static Qt
+description: Install the static build of Qt
+inputs: 
+  version:
+    description: Qt version
+    required: false
+    default: "6.10.0"
+runs:
+  using: "composite"
+  steps:
+    - uses: actions-ecosystem/action-get-latest-tag@v1
+      id: get-latest-tag
+      if: ${{ steps.release-label.outputs.level != null }}
+
+    - name: Install Static Qt
+      shell: bash
+      run: |
+        qt_version=${inputs.version}
+        curl -LO https://github.com/DanOlPar/qt-static-builds/releases/download/${ steps.get-latest-tag.outputs.tag }/qt-${qt_version}-static-${runner.os}-${runner.arch}.zip
+        7z x qt-*.zip
+        if [[ ${runner.name} == "Windows" ]]; then
+          echo "$(pwd -W | sed 's,/,\\,g')\qt_static\bin" >> $GITHUB_PATH
+        else
+          echo "$(pwd)/qt_static/bin" >> $GITHUB_PATH
+        fi

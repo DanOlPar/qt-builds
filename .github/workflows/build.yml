@@ -1,0 +1,525 @@
+name: Build Qt
+
+on:
+  workflow_dispatch:
+    inputs:
+      buildtype:
+        description: "Build type"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - linux
+          - linux_arm
+          - windows
+          - windows_arm
+          - macos
+          - all
+
+      qt_version:
+        description: "Qt Version"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - "all"
+          - "6.11.0"
+          - "6.10.2"
+          - "6.9.3"
+          - "6.8.3"
+          - "6.7.3"
+          #6.6.3 non compila per una issue con libzstd_static 
+          #- "6.6.3"
+          #- "6.5.3"
+
+      github_mirror:
+        description: "Sources github mirror"
+        required: true
+        #metto default a true, è più veloce e dovrebbe essere equivalente
+        default: "yes"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+
+      skip_cached_builds:
+        description: "Skip cached builds"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "yes"
+          - "no"
+
+
+permissions:
+  contents: write
+  actions: write # require to delete cache
+
+jobs:
+  setup:
+    env:
+      BUILD_LINUX: ${{(inputs.buildtype == 'all' || inputs.buildtype == 'linux') }}
+      BUILD_LINUX_ARM: ${{(inputs.buildtype == 'all' || inputs.buildtype == 'linux_arm') }}
+      BUILD_WINDOWS: ${{(inputs.buildtype == 'all' || inputs.buildtype == 'windows') }}
+      BUILD_WINDOWS_ARM: ${{(inputs.buildtype == 'all' || inputs.buildtype == 'windows_arm') }}
+      BUILD_MACOS: ${{(inputs.buildtype == 'all' || inputs.buildtype == 'macos') }}
+      QT_VERSION_IN: ${{inputs.qt_version}}
+      QT_USE_MIRROR_IN: ${{inputs.github_mirror == 'yes'}}
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.setup.outputs.targets }}
+      qt_versions: ${{ steps.setup.outputs.qt_versions }}
+      qt_sources_repo:  ${{ steps.setup.outputs.qt_sources_repo }}
+    steps:
+      - name: Build matrix (targets + qt versions)
+        id: setup
+        run: |
+          TARGETS=()
+
+          if [ ${{ env.BUILD_LINUX }} = true  ]; then
+            TARGETS+=('{"os":"ubuntu-24.04","toolchain":""}')
+          fi
+          if [ ${{ env.BUILD_LINUX_ARM }} = true  ]; then
+            TARGETS+=('{"os":"ubuntu-24.04-arm","toolchain":""}')
+          fi
+          if [ ${{ env.BUILD_WINDOWS }} = true  ]; then
+            TARGETS+=('{"os":"windows-2025","toolchain":"mingw"}')
+            TARGETS+=('{"os":"windows-2025","toolchain":"msvc"}')
+          fi
+          if [ ${{ env.BUILD_WINDOWS_ARM }} = true  ]; then
+            TARGETS+=('{"os":"windows-11-arm","toolchain":"msvc"}')
+          fi
+          if [ ${{ env.BUILD_MACOS }} = true  ]; then
+            TARGETS+=('{"os":"macos-15","toolchain":""}')
+          fi
+
+          # Se TARGETS è vuoto, produci [] per sicurezza
+          if [ ${#TARGETS[@]} -eq 0 ]; then
+            targets_json='[]'
+          else
+            # <<< FIX: niente -R, niente fromjson. Slurp come array di oggetti validi.
+            targets_json=$(printf '%s\n' "${TARGETS[@]}" | jq -s -c .)
+          fi
+          echo "targets=$targets_json" >> "$GITHUB_OUTPUT"
+
+          # Qt versions
+          V_IN="${{ env.QT_VERSION_IN }}"
+          if [ "$V_IN" = "all" ]; then
+            QT_LIST=('6.11.0' '6.10.2' '6.9.3' '6.8.3' '6.7.3')
+          else
+            QT_LIST=("$V_IN")
+          fi
+          qt_json='qt_versions='
+          qt_json+=$(printf '%s\n' "${QT_LIST[@]}" | jq -R . | jq -s .)
+          echo $qt_json >> $GITHUB_OUTPUT
+          
+          # Qt repo
+          QT_REPO=''
+          if [ ${{ env.QT_USE_MIRROR_IN }} = true  ]; then
+            QT_REPO='https://github.com/qt/qt5.git'
+          else
+            QT_REPO='https://code.qt.io/qt/qt5.git'
+          fi
+          echo "qt_sources_repo=$QT_REPO" >> $GITHUB_OUTPUT
+          echo $QT_REPO
+
+
+
+  build:
+    needs: [setup]
+    concurrency:
+      group: build-${{matrix.qt}}-${{matrix.target.os}}-${{matrix.target.toolchain}}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.setup.outputs.targets) }}
+        qt: ${{ fromJSON(needs.setup.outputs.qt_versions) }}
+    env:
+      COMMON_FLAGS: '-no-pch -no-feature-accessibility -nomake examples -nomake tools -nomake tests -gc-binaries -no-ltcg -sql-sqlite -skip qtwebengine -qt-libjpeg -qt-libpng -qt-zlib -qt-pcre'
+      # NOTA: Su linux è necessario usare OBBLIGATORIAMENTE freetype di sistema (system-freetype),
+      # altrimenti non è possibile utilizzare fontconfig e di conseguenza non si possono utilizzare font di sistema ma solo font embeddati nelle app.
+      # Inoltre, harfbuzz deve essere anche lui a sistema altrimenti se importato su qt-harfbuzz forza qt-freetype
+      LINUX_FLAGS: '-system-freetype -fontconfig -openssl-linked'
+      WINDOWS_FLAGS: '-qt-harfbuzz -qt-freetype'
+      MSVC_FLAGS: ''
+      MSVC_X64_FLAGS: '-openssl-linked'
+      MSVC_ARM64_FLAGS: ''
+      MINGW_FLAGS: ''
+      MSVC_CMAKE: '-DCMAKE_CXX_FLAGS="/await:strict" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"'
+      MSVC_X64_CMAKE: '-DFEATURE_openssl_linked=ON'
+      MSVC_ARM_CMAKE: '-DCMAKE_SYSTEM_PROCESSOR=ARM64'
+      MINGW_CMAKE: ''
+      LINUX_CMAKE: '-DCMAKE_PREFIX_PATH=/usr/lib/llvm-18 -DFEATURE_openssl_linked=ON'
+      MACOS_CMAKE: '-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"'
+      MACOS_FLAGS: '-qt-harfbuzz -qt-freetype'
+      SKIP_CACHED_BUILDS: ${{inputs.skip_cached_builds == 'yes'}}
+
+    runs-on: ${{ matrix.target.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+
+      # ---------- OS VARS ----------
+      - name: Set vars (Ubuntu)
+        if: contains(matrix.target.os, 'ubuntu')
+        run: |
+          echo "HOME_DIR=~" >> $GITHUB_ENV 
+          echo "HOME_DIR_BASH=~" >> $GITHUB_ENV 
+          echo "OS_NAME=${{runner.os}}-${{runner.arch}}" >> $GITHUB_ENV
+
+      - name: Set vars (macOS)
+        if: contains(matrix.target.os, 'macos')
+        run: |
+          echo "HOME_DIR=~" >> $GITHUB_ENV 
+          echo "HOME_DIR_BASH=~" >> $GITHUB_ENV 
+          echo "OS_NAME=${{runner.os}}-${{runner.arch}}" >> $GITHUB_ENV
+
+      - name: Set vars (Windows x86/x64)
+        if: contains(matrix.target.os, 'windows') && !contains(runner.arch, 'ARM64')
+        run: |
+          echo "HOME_DIR=D:\" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "HOME_DIR_BASH=D:/" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "OS_NAME=${{runner.os}}-${{runner.arch}}-${{ matrix.target.toolchain }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Set vars (Windows ARM64)
+        if: contains(matrix.target.os, 'windows') && contains(runner.arch, 'ARM64')
+        run: |
+          echo "HOME_DIR=~" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "HOME_DIR_BASH=~" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "OS_NAME=${{runner.os}}-${{runner.arch}}-${{ matrix.target.toolchain }}" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # ---------- DEPENDENCIES LINUX ----------
+      - name: Set up Linux dependencies (Ubuntu)
+        if: contains(matrix.target.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt remove -y clang-12 clang-13 clang-14 clang-15 clang-16 clang-17 || true
+          sudo apt-get install -y clang-18
+          sudo apt-get install -y $(cat linux_packages.txt)
+
+      # ---------- WINDOWS TOOLCHAINS ----------
+      # MinGW setup (x64 ONLY)
+      - name: Set up MinGW (Windows MinGW)
+        id: install_cc
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
+        uses: rlalik/setup-cpp-compiler@master
+        with:
+          compiler: latest
+
+      - name: add MinGW to PATH (Windows MinGW)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
+        uses: myci-actions/export-env-var-powershell@1
+        with:
+          name: PATH
+          value: C:\ProgramData\mingw64\mingw32\bin;C:\ProgramData\mingw64\mingw64\bin;$env:PATH
+
+      # MSVC setup (x64 and ARM64)
+      - name: Enable MSVC env (Windows MSVC)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ contains(runner.arch,'ARM64') && 'arm64' || 'x64' }}
+      
+      #vcpkg has wrong root
+      - name: Fix vcpkg location (Windows MSVC)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc'
+        uses: myci-actions/export-env-var-powershell@1
+        with:
+          name: VCPKG_ROOT
+          value: C:\vcpkg
+
+      #OpenSSL for MSVC ARM
+      - name: Install OpenSSL (Windows MSVC ARM)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc' && contains(runner.arch,'ARM64')
+        run: |
+          vcpkg install openssl:${{runner.arch}}-${{runner.os}}-release --vcpkg-root=$env:VCPKG_ROOT
+
+      #OpenSSL for MSVC X86
+      - name: Install OpenSSL (Windows MSVC X86)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc' && !contains(runner.arch,'ARM64')
+        run: |
+          vcpkg install openssl:${{runner.arch}}-${{runner.os}}-release --vcpkg-root=$env:VCPKG_ROOT
+
+
+      # Mirror DIA SDK from Enterprise to expected Community path
+      - name: Fix MSVC DIA SDK path (Windows MSVC ARM)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc' && contains(runner.arch,'ARM64')
+        shell: pwsh
+        run: |
+          $entBase = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\DIA SDK'
+          $comBase = 'C:\Program Files\Microsoft Visual Studio\2022\Community\DIA SDK'
+          if (-not (Test-Path $entBase)) {
+            Write-Error "DIA SDK (Enterprise) non trovata in $entBase"
+            exit 1
+          }
+
+          # Crea l'albero Community se manca
+          if (-not (Test-Path $comBase)) {
+            New-Item -ItemType Directory -Path $comBase | Out-Null
+          }
+          # Copia include (serve per dia2.h ecc.)
+          if (-not (Test-Path (Join-Path $comBase 'include'))) {
+            Copy-Item -Path (Join-Path $entBase 'include') -Destination $comBase -Recurse
+          }
+          # Copia lib per arch corrente (arm64 o amd64)
+          $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'arm64' } else { 'amd64' }
+          $entLib = Join-Path $entBase "lib\$arch"
+          $comLib = Join-Path $comBase "lib\$arch"
+          if (-not (Test-Path $entLib)) {
+            Write-Error "Librerie DIA per $arch non trovate in $entLib"
+            exit 1
+          }
+          if (-not (Test-Path $comLib)) {
+            New-Item -ItemType Directory -Path $comLib -Force | Out-Null
+          }
+          Copy-Item -Path (Join-Path $entLib '*') -Destination $comLib -Recurse -Force
+
+          # Aggiorna INCLUDE/LIB per sicurezza (cintura e bretelle)
+          Add-Content $env:GITHUB_ENV "INCLUDE=$comBase\include;$env:INCLUDE"
+          Add-Content $env:GITHUB_ENV "LIB=$comBase\lib\$arch;$env:LIB"
+
+          # Log di controllo
+          $want = Join-Path $comLib 'diaguids.lib'
+          if (Test-Path $want) {
+            Write-Host "✅ diaguids.lib pronto in: $want"
+          } else {
+            Write-Error "❌ diaguids.lib non trovato in: $want"
+            exit 1
+          }
+
+      # ---------- DISK SPACE LINUX ----------
+      # Necessario altrimenti ubuntu non ha abbastanza spazio per buildare
+      - name: Free Disk Space (Ubuntu)
+        if: contains(matrix.target.os, 'ubuntu')
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # this might remove tools that are actually needed,
+          # if set to "true" but frees about 6 GB
+          tool-cache: false
+          # all of these default to true, but feel free to set to
+          # "false" if necessary for your workflow
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: true
+
+      # ---------- SOURCES ----------
+      - name: Clone Qt repo (version-specific) if not found or cache disabled (retry if fail, sometimes git repo isn't working properly)
+        uses: nick-fields/retry@v3
+        with:
+          max_attempts: 50
+          timeout_minutes: 120
+          shell: bash
+          command: |
+            cd ${{env.HOME_DIR_BASH}}
+            if [ -d "qtsrc" ]; then
+              echo "qtsrc exists, removing"
+              rm -r qtsrc
+            fi
+            mkdir qtsrc
+            cd qtsrc
+            git clone ${{needs.setup.outputs.qt_sources_repo}} . -b '${{matrix.qt}}'
+            perl init-repository
+      
+      # ---------- BUILD CACHE ----------
+      # Se possibile tengo build precedente per alleggerire il carico/ridurre il tempo di build
+      - name: Restore previous build for system+version+toolchain
+        id: cache-build-restore
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{matrix.qt}}-${{env.OS_NAME}}
+          path: "${{env.HOME_DIR}}/qt_build"
+
+      - name: Create build folder if no previous build is restored
+        if: steps.cache-build-restore.outputs.cache-hit != 'true'
+        run: |
+          cd ${{env.HOME_DIR}}
+          mkdir -p qt_build
+
+      # ---------- CONFIGURE ----------
+      # Fix necessario altrimenti sia opcua che qtnetwork definiscono i simboli di openssl andando in conflitto e non compila ncazzo se includi opcua in un'app
+      - name: Fix QtOpcUa (Ubuntu)
+        if: contains(matrix.target.os, 'ubuntu')
+        run: |
+          cd ${{env.HOME_DIR}}
+          file="qtsrc/qtopcua/src/opcua/CMakeLists.txt"
+          if grep -q "openssl_symbols.cpp" "$file"; then
+            sed -i '/openssl_symbols\.cpp/s/^/# DISABLED to avoid symbol conflicts\n#/' "$file"
+            echo "openssl_symbols.cpp disabled in $file to avoid conflicts"
+          else
+            echo "openssl_symbols.cpp already disabled or missing"
+          fi
+
+      - name: Configure Qt (Ubuntu)
+        if: contains(matrix.target.os, 'ubuntu') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          ~/qtsrc/configure -release -prefix "../qt_build" ${{ env.COMMON_FLAGS }} ${{env.LINUX_FLAGS}} -- ${{env.LINUX_CMAKE}}
+
+      - name: Configure Qt (macOS)
+        if: contains(matrix.target.os, 'macos') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          ~/qtsrc/configure -release -prefix "../qt_build" ${{ env.COMMON_FLAGS }} ${{env.MACOS_FLAGS}} -- ${{env.MACOS_CMAKE}}
+
+      - name: Configure Qt (Windows MinGW)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        env:
+          CL: /MP # Build with multiple processes
+          CC: ${{ steps.install_cc.outputs.cc }}
+          CXX: ${{ steps.install_cc.outputs.cxx }}
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          ..\qtsrc\configure.bat -release -prefix "..\qt_build" ${{ env.COMMON_FLAGS }} ${{env.WINDOWS_FLAGS}} ${{env.MINGW_FLAGS}} -- ${{env.MINGW_CMAKE}}
+
+      - name: Configure Qt (Windows X64 MSVC)
+        if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc' && !contains(runner.arch,'ARM64') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        env:
+          CL: /MP
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          #/MT; Ninja come generator
+          ..\qtsrc\configure.bat -release -prefix "..\qt_build" ${{ env.COMMON_FLAGS }} ${{env.WINDOWS_FLAGS}} ${{env.MSVC_FLAGS}} ${{env.MSVC_X64_FLAGS}} -- ${{env.MSVC_CMAKE}} ${{env.MSVC_X64_CMAKE}}
+
+      - name: Configure Qt (Windows ARM64 MSVC)
+        if: contains(matrix.target.os, 'windows') && contains(runner.arch,'ARM64') && matrix.target.toolchain == 'msvc' && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        env:
+          CL: /MP
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          ..\qtsrc\configure.bat -release -prefix "..\qt_build" ${{ env.COMMON_FLAGS }} ${{env.WINDOWS_FLAGS}} ${{env.MSVC_FLAGS}} ${{env.MSVC_ARM64_FLAGS}} -- ${{env.MSVC_CMAKE}} ${{env.MSVC_ARM_CMAKE}}
+
+
+      - name: Print configure summary for debug reasons
+        shell: bash
+        if: always()
+        run: |
+          cat ${{ env.HOME_DIR_BASH }}/qt_build/config.summary
+
+      # ---------- BUILD ----------
+      - name: Build Qt (Ubuntu)
+        if: contains(matrix.target.os, 'ubuntu') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          cmake --build . --parallel 4 -j4
+
+      - name: Build Qt (macOS)
+        if: contains(matrix.target.os, 'macos') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          cmake --build . --parallel 3 -j3
+
+      - name: Build Qt (Windows)
+        if: contains(matrix.target.os, 'windows') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          cmake --build . --parallel 4 -j4
+
+      # ---------- INSTALL ----------
+      - name: Install build
+        if: success()
+        run: |
+          cd ${{env.HOME_DIR}}
+          cd qt_build
+          cmake --install .
+          cd ..
+
+      # ---------- SAVE CACHE ----------
+      - name: Delete Previous Cache
+        if: ${{ steps.cache-build-restore.outputs.cache-hit }} && success()
+        continue-on-error: true
+        run: |
+          gh extension install actions/gh-actions-cache
+          gh actions-cache delete "${{ steps.cache-build-restore.outputs.cache-primary-key }}" --confirm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Save build cache (system+version+toolchain)
+        id: cache-build-save
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.cache-build-restore.outputs.cache-primary-key }}
+          path: "${{env.HOME_DIR}}/qt_build"
+
+      # ---------- ARTIFACTS ----------
+      - name: Package binaries
+        run: |
+          cd ${{env.HOME_DIR}}
+          7z a qt-${{matrix.qt}}-${{env.OS_NAME}}.zip qt_build
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-${{matrix.qt}}-${{env.OS_NAME}}
+          path: ${{env.HOME_DIR}}/qt-${{matrix.qt}}-${{env.OS_NAME}}.zip
+
+
+      - name: Copy configuration summary
+        shell: bash
+        run: |
+          cp ${{ env.HOME_DIR_BASH }}/qt_build/config.summary ${{env.HOME_DIR_BASH}}/qt-${{matrix.qt}}-${{env.OS_NAME}}-config.summary
+
+
+      # salva il file di configuration in modo da avere un'idea di cosa è presente nella build
+      - name: Upload configuration summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.qt }}-${{env.OS_NAME}}
+          path: |
+            ${{env.HOME_DIR}}/qt-${{matrix.qt}}-${{env.OS_NAME}}-config.summary
+          if-no-files-found: ignore
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    env:
+      QT_VERSION: ${{inputs.qt_version}}
+    if: always() && !cancelled()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Shorthand tags
+        id: tag
+        run: |
+          git config --global user.email "27856297+dependabot-preview[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          TAG=qt-${QT_VERSION}-$(date '+%Y%m%d_%H%M')
+          git tag $TAG -m "Published version $TAG"
+          git push -f origin $TAG
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Zip configuration summaries
+        shell: bash
+        run: |
+          cd release
+          7z a config-summaries.zip *.summary
+          rm *.summary
+
+
+
+      - uses: softprops/action-gh-release@v2
+        name: Do release
+        with:
+          files: release/*
+          tag_name: ${{ steps.tag.outputs.tag }}
