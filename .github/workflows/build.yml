@@ -137,7 +137,7 @@ jobs:
         target: ${{ fromJSON(needs.setup.outputs.targets) }}
         qt: ${{ fromJSON(needs.setup.outputs.qt_versions) }}
     env:
-      COMMON_FLAGS: '-no-pch -no-feature-accessibility -nomake examples -nomake tools -nomake tests -no-ltcg -sql-sqlite -skip qtwebengine -qt-libjpeg -qt-libpng -qt-zlib -qt-pcre'
+      COMMON_FLAGS: '-no-pch -no-feature-accessibility -nomake examples -nomake tests -no-ltcg -sql-sqlite -skip qtwebengine -qt-libjpeg -qt-libpng -qt-zlib -qt-pcre'
       # NOTA: Su linux è necessario usare OBBLIGATORIAMENTE freetype di sistema (system-freetype),
       # altrimenti non è possibile utilizzare fontconfig e di conseguenza non si possono utilizzare font di sistema ma solo font embeddati nelle app.
       # Inoltre, harfbuzz deve essere anche lui a sistema altrimenti se importato su qt-harfbuzz forza qt-freetype
