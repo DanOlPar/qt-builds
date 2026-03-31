@@ -236,13 +236,13 @@ jobs:
       - name: Install OpenSSL (Windows MSVC ARM)
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc' && contains(runner.arch,'ARM64')
         run: |
-          vcpkg install openssl:${{runner.arch}}-${{runner.os}}-release --vcpkg-root=$env:VCPKG_ROOT
+          vcpkg install openssl:${{runner.arch}}-${{runner.os}}-static-release --vcpkg-root=$env:VCPKG_ROOT
 
       #OpenSSL for MSVC X86
       - name: Install OpenSSL (Windows MSVC X86)
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'msvc' && !contains(runner.arch,'ARM64')
         run: |
-          vcpkg install openssl:${{runner.arch}}-${{runner.os}}-release --vcpkg-root=$env:VCPKG_ROOT
+          vcpkg install openssl:${{runner.arch}}-${{runner.os}}-static-release --vcpkg-root=$env:VCPKG_ROOT
 
 
       # Mirror DIA SDK from Enterprise to expected Community path
@@ -344,17 +344,17 @@ jobs:
 
       # ---------- CONFIGURE ----------
       # Fix necessario altrimenti sia opcua che qtnetwork definiscono i simboli di openssl andando in conflitto e non compila ncazzo se includi opcua in un'app
-      - name: Fix QtOpcUa (Ubuntu)
-        if: contains(matrix.target.os, 'ubuntu')
-        run: |
-          cd ${{env.HOME_DIR}}
-          file="qtsrc/qtopcua/src/opcua/CMakeLists.txt"
-          if grep -q "openssl_symbols.cpp" "$file"; then
-            sed -i '/openssl_symbols\.cpp/s/^/# DISABLED to avoid symbol conflicts\n#/' "$file"
-            echo "openssl_symbols.cpp disabled in $file to avoid conflicts"
-          else
-            echo "openssl_symbols.cpp already disabled or missing"
-          fi
+      #- name: Fix QtOpcUa (Ubuntu)
+      #  if: contains(matrix.target.os, 'ubuntu')
+      #  run: |
+      #    cd ${{env.HOME_DIR}}
+      #    file="qtsrc/qtopcua/src/opcua/CMakeLists.txt"
+      #    if grep -q "openssl_symbols.cpp" "$file"; then
+      #      sed -i '/openssl_symbols\.cpp/s/^/# DISABLED to avoid symbol conflicts\n#/' "$file"
+      #      echo "openssl_symbols.cpp disabled in $file to avoid conflicts"
+      #    else
+      #      echo "openssl_symbols.cpp already disabled or missing"
+      #    fi
 
       - name: Configure Qt (Ubuntu)
         if: contains(matrix.target.os, 'ubuntu') && !(env.SKIP_CACHED_BUILDS == 'true' && steps.cache-build-restore.outputs.cache-hit == 'true')
