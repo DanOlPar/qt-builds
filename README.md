@@ -1,9 +1,9 @@
 
 ![](https://doc.qt.io/qtforpython-6/_downloads/779d6d7ce1d79d357985f063a86786f3/logo.png)
 
-# Qt Static Builds
+# Qt Builds
 
-This workflow builds static binaries of Qt.
+This workflow builds Qt binaries.
 
 All modules except QtWebEngine are included. QtMultimedia has no ffmpeg backend
 
@@ -36,7 +36,7 @@ All modules except QtWebEngine are included. QtMultimedia has no ffmpeg backend
 
 ### All platforms
 - Configuration summmaries for each platform and version are present in the release tab
-- All modules except QtWebEngine are included, since QtWebEngine cannot be built statically.
+- All modules are included.
 - QtMultimedia has no ffmpeg backend
 
 ### Linux
@@ -44,7 +44,6 @@ All modules except QtWebEngine are included. QtMultimedia has no ffmpeg backend
 - Builds are configured with:
     - Embedded libjpeg, libpng, pcre, zlib
     - System harfuzz and freetype, since they are needed in order to use fontconfig for system fonts
-- A fix is applied to QtOpcUa, because it redefined the openssl symbols that were already defined by QtNetwork
 
 ### Windows
 
