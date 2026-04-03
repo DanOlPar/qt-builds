@@ -110,3 +110,5 @@ gperf
 autogen 
 autoconf-archive
 libnss3*
+dbus-*
+libdbus-*
