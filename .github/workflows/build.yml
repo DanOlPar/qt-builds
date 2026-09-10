@@ -210,7 +210,7 @@ jobs:
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
         uses: rlalik/setup-cpp-compiler@master
         with:
-          compiler: latest
+          compiler: gcc-15.2.0
 
       - name: add MinGW to PATH (Windows MinGW)
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
