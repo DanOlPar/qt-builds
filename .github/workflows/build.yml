@@ -149,7 +149,7 @@ jobs:
       MSVC_X64_FLAGS: '-openssl-linked'
       MSVC_ARM64_FLAGS: ''
       MINGW_FLAGS: ''
-      MSVC_CMAKE: '-DCMAKE_CXX_FLAGS="/await:strict" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"'
+      MSVC_CMAKE: '-DCMAKE_CXX_FLAGS="/await:strict" -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"'
       MSVC_X64_CMAKE: '-DFEATURE_openssl_linked=ON'
       MSVC_ARM_CMAKE: '-DCMAKE_SYSTEM_PROCESSOR=ARM64'
       MINGW_CMAKE: ''
