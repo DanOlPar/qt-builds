@@ -157,7 +157,8 @@ jobs:
       # c'e' nel PATH (GStreamer, Inkscape, MinGW vecchi di Qt Tools...). -lstdc++ va PRIMA di -lwinpthread nello stesso blocco,
       # altrimenti i simboli pthread usati da libstdc++ finiscono risolti dal -lpthread dinamico che g++ aggiunge in coda
       # (stesso trucco di openal-soft, commit a7fa088e). Costo: ~450 KB per file. Qt vieta -static-runtime per le build shared, quindi si passa da CMake.
-      MINGW_CMAKE: '-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -DCMAKE_MODULE_LINKER_FLAGS=-static-libgcc -DCMAKE_EXE_LINKER_FLAGS=-static-libgcc -DCMAKE_CXX_STANDARD_LIBRARIES=-Wl,--push-state,-Bstatic,-lstdc++,-lwinpthread,--pop-state -DCMAKE_C_STANDARD_LIBRARIES=-Wl,--push-state,-Bstatic,-lwinpthread,--pop-state'
+      # Le virgolette attorno ai valori con virgole servono a PowerShell, che altrimenti legge le virgole come separatore di array.
+      MINGW_CMAKE: '-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -DCMAKE_MODULE_LINKER_FLAGS=-static-libgcc -DCMAKE_EXE_LINKER_FLAGS=-static-libgcc -DCMAKE_CXX_STANDARD_LIBRARIES="-Wl,--push-state,-Bstatic,-lstdc++,-lwinpthread,--pop-state" -DCMAKE_C_STANDARD_LIBRARIES="-Wl,--push-state,-Bstatic,-lwinpthread,--pop-state"'
       LINUX_CMAKE: '-DCMAKE_PREFIX_PATH=/usr/lib/llvm-18 -DFEATURE_openssl_linked=ON'
       MACOS_CMAKE: '-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"'
       MACOS_FLAGS: '-qt-harfbuzz -qt-freetype'
