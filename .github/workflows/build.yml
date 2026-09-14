@@ -23,8 +23,8 @@ on:
         type: choice
         options:
           - "all"
-          - "6.11.0"
-          - "6.10.2"
+          - "6.11.2"
+          - "6.10.3"
           - "6.9.3"
           - "6.8.3"
           - "6.7.3"
@@ -106,7 +106,7 @@ jobs:
           # Qt versions
           V_IN="${{ env.QT_VERSION_IN }}"
           if [ "$V_IN" = "all" ]; then
-            QT_LIST=('6.11.0' '6.10.2' '6.9.3' '6.8.3' '6.7.3')
+            QT_LIST=('6.11.2' '6.10.3' '6.9.3' '6.8.3' '6.7.3')
           else
             QT_LIST=("$V_IN")
           fi
@@ -216,7 +216,7 @@ jobs:
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
         uses: rlalik/setup-cpp-compiler@master
         with:
-          compiler: latest
+          compiler: gcc-15.2.0
 
       - name: add MinGW to PATH (Windows MinGW)
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
