@@ -48,7 +48,10 @@ All modules except QtWebEngine are included. QtMultimedia has no ffmpeg backend
 ### Windows
 
 ##### MinGW
-- The correct MinGW version must be installed to the system and configured in Qt Creator
+- The correct MinGW version must be installed to the system and configured in Qt Creator. The exact GCC version used for the build is written in `mingw_version.txt` inside the toolchain folder.
+- The MinGW runtime (libgcc, libstdc++, winpthread) is linked statically into every Qt DLL, plugin and tool, so no Qt file imports `libwinpthread-1.dll`, `libstdc++-6.dll` or `libgcc_s_seh-1.dll` and it does not matter which MinGW runtime is found first in your `PATH`. Qt itself is still a shared (DLL) build.
+- Your own application still links the MinGW runtime DLLs dynamically (unless you use the same linker flags), so it needs the `bin` folder of the MinGW version listed in `mingw_version.txt` in its `PATH` or next to the executable.
+- If you get an error like *"The procedure entry point nanosleep64 could not be located in Qt6Core.dll"* when running your own application, an older `libwinpthread-1.dll` from another program (e.g. GStreamer, Inkscape, an older MinGW) comes first in your `PATH`. Put the toolchain `bin` folder (or your MinGW `bin` folder) before those entries, or run the application from Qt Creator, which does this automatically.
 
 ##### MSVC
 

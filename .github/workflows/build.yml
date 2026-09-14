@@ -152,7 +152,12 @@ jobs:
       MSVC_CMAKE: '-DCMAKE_CXX_FLAGS="/await:strict" -DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"'
       MSVC_X64_CMAKE: '-DFEATURE_openssl_linked=ON'
       MSVC_ARM_CMAKE: '-DCMAKE_SYSTEM_PROCESSOR=ARM64'
-      MINGW_CMAKE: ''
+      # NOTA: runtime MinGW (libgcc, libstdc++, winpthread) linkato STATICAMENTE dentro ogni DLL/exe di Qt, Qt resta shared.
+      # Cosi' nessun file di Qt importa libwinpthread-1.dll / libstdc++-6.dll / libgcc_s_seh-1.dll e non conta quale runtime
+      # c'e' nel PATH (GStreamer, Inkscape, MinGW vecchi di Qt Tools...). -lstdc++ va PRIMA di -lwinpthread nello stesso blocco,
+      # altrimenti i simboli pthread usati da libstdc++ finiscono risolti dal -lpthread dinamico che g++ aggiunge in coda
+      # (stesso trucco di openal-soft, commit a7fa088e). Costo: ~450 KB per file. Qt vieta -static-runtime per le build shared, quindi si passa da CMake.
+      MINGW_CMAKE: '-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc -DCMAKE_MODULE_LINKER_FLAGS=-static-libgcc -DCMAKE_EXE_LINKER_FLAGS=-static-libgcc -DCMAKE_CXX_STANDARD_LIBRARIES=-Wl,--push-state,-Bstatic,-lstdc++,-lwinpthread,--pop-state -DCMAKE_C_STANDARD_LIBRARIES=-Wl,--push-state,-Bstatic,-lwinpthread,--pop-state'
       LINUX_CMAKE: '-DCMAKE_PREFIX_PATH=/usr/lib/llvm-18 -DFEATURE_openssl_linked=ON'
       MACOS_CMAKE: '-DCMAKE_OSX_ARCHITECTURES="x86_64;arm64"'
       MACOS_FLAGS: '-qt-harfbuzz -qt-freetype'
@@ -210,7 +215,7 @@ jobs:
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
         uses: rlalik/setup-cpp-compiler@master
         with:
-          compiler: gcc-15.2.0
+          compiler: latest
 
       - name: add MinGW to PATH (Windows MinGW)
         if: contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw' && !contains(runner.arch,'ARM64')
@@ -439,6 +444,13 @@ jobs:
           cd qt_build
           cmake --install .
           cd ..
+
+      # Salvo la versione del compilatore usato, cosi' chi scarica la build sa quale MinGW installare
+      - name: Record MinGW version (Windows MinGW)
+        if: success() && contains(matrix.target.os, 'windows') && matrix.target.toolchain == 'mingw'
+        shell: pwsh
+        run: |
+          & "${{ steps.install_cc.outputs.cc }}" --version | Out-File -FilePath (Join-Path "${{env.HOME_DIR}}" "qt_build\mingw_version.txt") -Encoding utf8
 
       # ---------- SAVE CACHE ----------
       - name: Delete Previous Cache
